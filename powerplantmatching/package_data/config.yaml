@@ -24,6 +24,7 @@ matching_sources:
   - BEYONDCOAL: Fueltype != 'Solar'
   - WIKIPEDIA: Fueltype != 'Solar'
   - GEM
+  - MASTR
 
 # fully_included_sources, these sources are included even without match to the final dataset
 fully_included_sources:
@@ -47,6 +48,12 @@ matched_data_url: https://raw.githubusercontent.com/PyPSA/powerplantmatching/{ta
 
 opsd_vres_base_year: 2020
 
+MASTR:
+  update_local_data: false
+  load_saved_data: true
+  save_to_file: true
+  url: https://www.marktstammdatenregister.de/MaStR/Datendownload
+  reliability_score: 6
 BNETZA:
   reliability_score: 2
   fn: Kraftwerksliste_2017_2.xlsx

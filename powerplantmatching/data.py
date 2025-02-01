@@ -28,6 +28,8 @@ import pycountry
 import requests
 from deprecation import deprecated
 
+from mastr_data_processor.data_processor import MaStr_Processor
+    
 from .cleaning import (
     clean_name,
     gather_fueltype_info,
@@ -49,6 +51,86 @@ logger = logging.getLogger(__name__)
 cget = pycountry.countries.get
 net_caps = get_config()["display_net_caps"]
 
+
+
+def MASTR(raw=False, update=False, config=None):
+    """
+    Importer for the German Master Market Register (MaStr) retrieved from
+    https://www.marktstammdatenregister.de/MaStR using the open-MaStr Api
+    https://github.com/OpenEnergyPlatform/open-MaStR and a preliminary 
+    data cleaning the mastr_data_processor from "MY GITHUB"
+
+    Parameters
+    ----------
+    raw : Boolean, default False
+        Whether to return the original dataset
+    update: bool, default False
+        Whether to update the data from the url.
+    config : dict, default None
+        Add custom specific configuration,
+        e.g. powerplantmatching.config.get_config(target_countries='Italy'),
+        defaults to powerplantmatching.config.get_config()
+
+        """
+        
+    config = get_config() if config is None else config
+
+    # Initialize the Local MaStr Database and DataProcessor
+    data = MaStr_Processor(load_saved_data=config['MASTR']['load_saved_data'], 
+                           update_mastr=update)
+
+    if update or not data.powerplant_data.empty:
+        # Fetch, clean, and process power plant data
+        # Stores the resulting data as a CSV file locally
+        data.update_powerplants(save_to_file=config['MASTR']['save_to_file'])
+
+    if update or not data.storage_data.empty:
+        # Fetch, clean, and process storage data
+        # Stores the resulting data as a CSV file locally
+        data.update_storage(save_to_file=config['MASTR']['save_to_file'])
+        
+    ppl = pd.concat([data.powerplant_data, data.storage_data], axis=0)
+
+    if raw:
+        return ppl
+    
+    PPL_RENAME_COLUMNS = {
+        "Type": "Fueltype",
+        "Commissioning": "DateIn",
+        "Decommissioning": "DateOut",
+        "Latitude": "lat",
+        "Longitude": "lon",
+        "Unit Status": "Status",
+    }
+    
+    
+    ppl["projectID"] = pd.Series(ppl.index).astype(str)
+    ppl["Name"] = ppl["Power Plant Name"].fillna(ppl["Unit Name"]).fillna(ppl["Block Name"]).fillna(ppl['EIC Name'])
+    ppl = ppl.set_index('projectID')
+    
+    ppl = ppl.rename(columns=PPL_RENAME_COLUMNS)
+    
+    # Define the allowed columns (renamed ones + projectID and Name)
+    keep_columns = list(PPL_RENAME_COLUMNS.values()) + ["projectID", "Name"]
+
+    ppl = ppl.drop(columns=ppl.columns[~ppl.columns.isin(keep_columns)])
+    ppl = set_column_name(ppl, "MASTR")
+
+    ppl = gather_specifications(ppl, parse_columns=["Name", "Fueltype"])
+    ppl = clean_name(ppl)
+    ppl = convert_to_short_name(ppl)
+    
+    ppl['Status'] = ppl['Status'].map({'on': 'commissioned', 
+                                       'off': 'decommissioned',
+                                       'temporarily off': 'mothballed',
+                                       'planned': 'construction'})
+    ppl['Status'] = ppl['Status'].fillna('commissioned')
+    
+    ppl = ppl.query("Status in ['commissioned','reserve','mothballed','construction']")
+    
+    ppl = config_filter(ppl, config)
+
+    return ppl
 
 def BEYONDCOAL(raw=False, update=False, config=None):
     """
